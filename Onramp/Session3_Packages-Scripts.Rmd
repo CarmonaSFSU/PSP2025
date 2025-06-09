@@ -189,7 +189,13 @@ library(readxl)
 2.  Now, we can import in the Excel file with our data!
 
 ```{r}
-ncha_demo <- read_xlsx("NCHA2021_RWS_Subset.xlsx", col_names = TRUE)
+# why is the file path not working? 
+# ncha_demo <- read_xlsx("Onramp/Data/NCHA2021_RWS_Subset.xlsx", col_names = TRUE)
+
+ncha_demo <- read_xlsx("~/Library/Mobile Documents/com~apple~CloudDocs/Documents/SFSU Faculty/PINC 2025/PSP2025/Onramp/Data/NCHA2021_RWS_Subset.xlsx", col_names = TRUE)
+
+# ncha_demo <- read_excel("Onramp/Data/NCHA2021_RWS_Subset.xlsx")
+
 ```
 
 3.  Time to check if the data loaded in correctly.
@@ -207,21 +213,34 @@ str(ncha_demo)
 5.  Great! Now, let's find out the number of different values of a variable.
 
 ```{r}
-table()
+table(ncha_demo)
 ```
 
 6.  What values are we interested in? Pick 3!
 
+
+```{r}
+
+OverallHealth <- ncha_demo$`Overall Health`
+
+Weight <- ncha_demo$`Self described weight`
+
+ModExercise <- ncha_demo$`Minutes Moderate PA - minutes`
+
+```
+
+
 7.  Alright, now let's create a NEW data frame with the data from just those 3 variables.
 
 ```{r}
-ncha_new <- data.frame()
+ncha_new <- data.frame(OverallHealth, Weight, ModExercise)
 ```
+
 
 8.  Lastly, let's export that new data frame into a CSV file!
 
 ```{r}
-write.csv()
+write.csv(ncha_new, "~/Library/Mobile Documents/com~apple~CloudDocs/Documents/SFSU Faculty/PINC 2025/PSP2025/Onramp/Data/ncha_new.csv")
 ```
 
 ### F. *Activity 2:* Importing, Viewing, and Exporting
