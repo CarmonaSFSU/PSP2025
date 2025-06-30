@@ -134,7 +134,7 @@ for (yr in 2000:2024) {
   res <- fetch_noaa_data_paginated(
     start_date = paste0(yr, "-01-01"),
     end_date = paste0(yr, "-12-31"),
-    location_id = "CITY:US060031",
+    location_id = "CITY:US060031", # the city ID provided many locations outside of the city 
     datatypeids = c("TMAX", "TMIN"),
     token = noaa_token
   )
@@ -145,7 +145,7 @@ for (yr in 2000:2024) {
 sf_weather <- bind_rows(all_data)
 
 # save the data as a CSV to use for later 
-write.csv(sf_weather, "sf_weather_noaa_2000_2024.csv", row.names = FALSE)
+# write.csv(sf_weather, "sf_weather_noaa_2000_2024.csv", row.names = FALSE)
 ```
 
 
@@ -216,7 +216,7 @@ for (yr in 2000:2024) {
   res <- fetch_noaa_data_paginated(
     start_date = paste0(yr, "-01-01"),
     end_date = paste0(yr, "-12-31"),
-    location_id = "FIPS:06075",
+    location_id = "FIPS:06075", # FIPS for SF 
     datatypeids = c("TMAX", "TMIN"),
     token = noaa_token
   )
@@ -231,6 +231,84 @@ sf_weather <- bind_rows(all_data)
 write.csv(sf_weather, "sf_weather_noaa_2000_2024.csv", row.names = FALSE)
 
 ```
+
+```{r}
+
+# look over all data 
+summary(sf_weather)
+
+# look at number of stations 
+table(sf_weather$station)
+
+# check min and max dates 
+min(sf_weather$date) # "2000-01-01T00:00:00"
+
+max(sf_weather$date) # "2023-11-20T00:00:00"
+
+# look at first 6 rows of data 
+head(sf_weather)
+
+# transform Celsius to Fahrenheit
+## Temperature in degrees Fahrenheit (°F) = (Temperature in degrees Celsius (°C) * 9/5) + 32
+
+sf_weather <- sf_weather %>% 
+                mutate(temp_f = (value * (9/5) + 32))
+
+sf_weather <- sf_weather %>%  rename(temp_c = value)
+
+
+# change date format 
+
+sf_weather <- sf_weather %>%
+  mutate(
+    # parse the ISO string as UTC
+    datetime_utc = ymd_hms(date, tz = "UTC"),
+    # shift that instant into Pacific Time (handles PST vs PDT)
+    datetime_pst = with_tz(datetime_utc, tzone = "America/Los_Angeles"),
+    # now pull out each component in local time
+    date_pst = as.Date(datetime_pst),
+    Year   = year(datetime_pst),
+  ) %>%
+  # optional: drop the helper columns if you don’t need them
+  select(-datetime_utc)
+
+
+# another way of dealing with time 
+sf_weather <- sf_weather %>% 
+                  mutate(date_time = ymd_hms(date),
+                         date_new = as_date(date_time))
+
+# plot using ggplot2 
+
+ggplot(sf_weather, aes(x = date_new, y = temp_f, color = datatype)) + geom_point()
+
+# wrapping by data type (min or max)
+ggplot(sf_weather, aes(x = date_new, y = temp_f, color = datatype)) + geom_point() + 
+  facet_wrap(~datatype)
+
+# wrapping by station 
+ggplot(sf_weather, aes(x = date_new, y = temp_f, color = datatype)) + geom_point() + 
+  facet_wrap(~station)
+
+# add axis labels, customize axis ticks 
+
+ggplot(sf_weather, aes(x = date_new, y = temp_f, color = datatype)) +
+  geom_point() +
+  scale_x_date(
+    breaks = seq(from = as.Date("2000-01-01"), to = as.Date("2025-01-01"), by = "5 years"),
+    date_labels = "%Y"  # Only show the year
+  ) +
+labs(y = "Temperature (\u00B0F)") + 
+  xlab("Date") + 
+  ggtitle("Temperature in SF 2000-2024") + 
+    theme(plot.title = element_text(hjust = 0.5)) + 
+  labs(color = "Type")
+
+
+
+
+```
+
 
 
 ### Note: we figured out what station ids were in San Francisco 
