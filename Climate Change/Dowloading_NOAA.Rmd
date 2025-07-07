@@ -129,7 +129,7 @@ for (yr in 2000:2024) {
     start_date = paste0(yr, "-01-01"),
     end_date = paste0(yr, "-12-31"),
     location_id = "FIPS:06075", # FIPS for SF
-    datatypeids = c("TMAX", "TMIN", "TAVG"),
+    datatypeids = c("TMAX", "TMIN", "TAVG"), # Indicate the types of data being downloaded
     token = noaa_token
   )
   if (!is.null(res)) {
@@ -152,6 +152,10 @@ write.csv(sf_weather, "sf_weather_noaa_2000_2024.csv", row.names = FALSE)
 We then join weather data with station data, this will add the lat/long data needed for next step in the interpolation. 
 
 ```{r combine.data, echo = FALSE}
+
+# read in downloaded csv of data 
+# sf_weather <- read_csv("Climate Change/sf_weather_noaa_2000_2024.csv")
+
 
 # get list of stations in san francisco 
 
@@ -249,6 +253,11 @@ interpolated_results <- pmap_dfr(
 
 sf_tracts_with_weather <- left_join(sf_tracts, interpolated_results, by = "GEOID")
 
+
+# save the data as a CSV to use for later 
+
+write.csv(sf_tracts_with_weather, "sf_weather_interpolated_noaa_2000_2024.csv", row.names = FALSE)
+
 ```
 
 
@@ -272,22 +281,16 @@ sf_tracts_with_weather <- sf_tracts_with_weather %>%
 
 Fixing Time to have a more useful time stamp. 
 
-```{r, transform.time, echo = FALSE}
+```{r, transform.time, eval = FALSE}
 library(dplyr)
 library(lubridate)
 
+
+# code for time NOT working 
+
 sf_tracts_with_weather_time <- sf_tracts_with_weather %>%
-  mutate(
-    # parse the ISO string as UTC
-    datetime_utc = ymd_hms(date, tz = "UTC"),
-    # shift that instant into Pacific Time (handles PST vs PDT)
-    datetime_pst = with_tz(datetime_utc, tzone = "America/Los_Angeles"),
-    # now pull out each component in local time
-    date_pst = as.Date(datetime_pst),
-    Year   = year(datetime_pst),
-  ) %>%
-  # optional: drop the helper columns if you don’t need them
-  select(-datetime_utc)
+     mutate(date_pst = as.Date(date))
+
 
 ```
 
@@ -298,11 +301,11 @@ sf_tracts_with_weather_time <- sf_tracts_with_weather %>%
 library(ggplot2)
 library(dplyr)
 
-target_date <- "1990-08-01" # selecting a specific date 
+target_date <- "2024-09-04 UTC" # selecting a specific date 
 
 # If you want to map all datatypes (e.g., TMAX & TMIN), you can facet by datatype
 tracts_day <- sf_tracts_with_weather_time %>%
-  filter(date_pst == target_date)
+  filter(date == target_date)
 
 ggplot(tracts_day) +
   geom_sf(aes(fill = interpolated_value_f), color = "white", size = 0.1) +
@@ -325,7 +328,7 @@ ggplot(tracts_day) +
 
 We can explore the directly downloaded data. Note: this is the data before the interpolation step. 
 
-```{r}
+```{r eda, echo = FALSE}
 
 # read in data that was previously downloaded (the date variable will be different format)
 # sf_weather <- read_csv("Climate Change/sf_weather_noaa_2000_2024.csv")
@@ -427,6 +430,19 @@ labs(y = "Temperature (\u00B0F)") +
   labs(color = "Type")
 
 
+
+ggplot(df_weekly, aes(x = week_start, y = weekly_temp_f, color = datatype)) +
+  geom_line() +
+  scale_x_date(
+    breaks = seq(from = as.Date("2000-01-01"), to = as.Date("2025-01-01"), by = "5 years"),
+    date_labels = "%Y"  # Only show the year
+  ) +
+labs(y = "Temperature (\u00B0F)") + 
+  xlab("Date") + 
+  ggtitle("Weekly Temp in SF 2000-2024") + 
+    theme(plot.title = element_text(hjust = 0.5)) + 
+  labs(color = "Type")
+
 ```
 
 We can aggregate the daily data to bi-weekly data to help visualize it. 
@@ -504,7 +520,7 @@ EDA Steps for NOAA Data
  Compare trends and calculate correlation or RMSE
 
 
-```{r}
+```{r next.steps, echo = FALSE}
 # Load required packages
 library(dplyr)
 library(ggplot2)
@@ -514,24 +530,27 @@ library(Metrics)
 
 # Step 1: Prepare the data
 # Ensure 'date' is Date type and filter for 2010–2020
-noaa_df <- noaa_df %>%
+noaa_df <- sf_weather %>%
   mutate(date = as.Date(date)) %>%
-  filter(year(date) >= 2010 & year(date) <= 2020)
+  filter(year(date) >= 2000 & year(date) <= 2020)
 
 # Step 2: Pivot wider to get tmax and tmin in separate columns
 noaa_wide <- noaa_df %>%
   filter(datatype %in% c("TMAX", "TMIN")) %>%
-  select(date, station, datatype, value) %>%
-  pivot_wider(names_from = datatype, values_from = value) %>%
+  select(date, station, datatype, temp_f) %>%
+  pivot_wider(names_from = datatype, values_from = temp_f) %>%
   rename(tmax = TMAX, tmin = TMIN)
 
-# Step 3: Add year, month, week, and heat day flag (tmax ≥ 29.4°C)
+
+# pivot information: https://tidyr.tidyverse.org/articles/pivot.html 
+
+# Step 3: Add year, month, week, and heat day flag (tmax ≥ 29.4°C OR 84.92 F)
 noaa_wide <- noaa_wide %>%
   mutate(
     year = year(date),
     month = month(date, label = TRUE),
     week = isoweek(date),
-    heat_day = ifelse(tmax >= 29.4, 1, 0)
+    heat_day = ifelse(tmax >= 84.92, 1, 0) # added flag for heat day 
   )
 
 # Step 4: Time series plots of daily tmax and tmin
@@ -539,10 +558,10 @@ ggplot(noaa_wide, aes(x = date)) +
   geom_line(aes(y = tmax, color = "TMAX")) +
   geom_line(aes(y = tmin, color = "TMIN")) +
   facet_wrap(~ station, scales = "free_y") +
-  labs(title = "Daily Max and Min Temperatures by Station", y = "Temperature (°C)", color = "Variable")
+  labs(title = "Daily Max and Min Temperatures by Station", y = "Temperature (°F)", color = "Temperature")
 
 # Step 5: Annual summary statistics
-annual_summary <- noaa_wide %>%
+tabl <- noaa_wide %>%
   group_by(station, year) %>%
   summarise(
     avg_tmax = mean(tmax, na.rm = TRUE),
@@ -578,7 +597,8 @@ ggplot(annual_summary, aes(x = year, y = heat_days, color = station)) +
   geom_point() +
   scale_x_continuous(breaks = seq(min(annual_summary$year), max(annual_summary$year), by = 5)) +
   labs(title = "Annual Extreme Heat Days (≥85°F)", y = "# of Heat Days", x = "Year") +
-  theme_minimal()
+  theme_minimal() + 
+  theme(plot.title = element_text(hjust = 0.5))
 
 # Step 9: Weekly aggregation
 weekly_summary <- noaa_wide %>%
@@ -603,7 +623,7 @@ head(weekly_summary)
 **What are the temporal patterns of extreme heat events in San Francisco from 2010–2020?**
 
 1. Define Extreme Heat Event
-For this analysis, define an extreme heat day as any day where TMAX ≥ 29.4°C (85°F) OR we can use the local based defintion based on the 95th percentile. 
+For this analysis, define an extreme heat day as any day where TMAX ≥ 29.4°C (85°F) OR we can use the local based definition based on the 95th percentile. 
 
 A heat wave event is 2 or more consecutive extreme heat days.
 
