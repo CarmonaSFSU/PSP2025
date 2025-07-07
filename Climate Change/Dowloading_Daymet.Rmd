@@ -1,5 +1,5 @@
 ---
-title: "Downloading NOAA Data"
+title: "Downloading Daymet Data"
 output: html_document
 date: "2025-07-03"
 ---
@@ -134,10 +134,9 @@ unique(sf_daymet$measurement)
 
 ```
 
-We can look at the average temperature, by averaging the min and max temepratures.
+We can look at the average temperature, by averaging the min and max temperatures.
 
 ```{r}
-
 
 # Step 1: Filter for temperature
 # Daymet separates measurements by type (e.g., tmax, tmin), so filter accordingly:
@@ -160,7 +159,8 @@ annual_avg <- temp_data %>%
 # Option A: Sample 20 sites for individual trend lines
 
 
-set.seed(42)
+set.seed(42) # set seed if you want to have the same sample each time you run the code 
+
 sample_sites <- sample(unique(annual_avg$site), 20)
 
 ggplot(filter(annual_avg, site %in% sample_sites),
@@ -168,7 +168,11 @@ ggplot(filter(annual_avg, site %in% sample_sites),
   geom_line(alpha = 0.6) +
   geom_smooth(se = FALSE, method = "loess", color = "black") +
   labs(title = "Mean Annual Temperature Trends (Sample of 20 Sites)",
-       x = "Year", y = "Mean Annual Temp (°C)")
+       x = "Year", y = "Mean Annual Temp (°C)") + 
+  # remove legend 
+  theme(legend.position="none") + 
+  theme(plot.title = element_text(hjust = 0.5))
+
 
 
 # Option B: Overall trend across all sites
@@ -181,12 +185,13 @@ ggplot(overall_avg, aes(x = year, y = mean_temp)) +
   geom_line(color = "blue") +
   geom_smooth(method = "loess", se = FALSE, color = "black") +
   labs(title = "Average Annual Temperature Across All Sites",
-       x = "Year", y = "Mean Annual Temp (°C)")
+       x = "Year", y = "Mean Annual Temp (°C)") + 
+  theme(plot.title = element_text(hjust = 0.5))
 
 
 ```
 
-We can also look at the minimum and maximum temperatures seperately.
+We can also look at the minimum and maximum temperatures separately.
 
 ```{r}
 
@@ -284,7 +289,7 @@ Now we can get ready to answer our first research question!
 
 1.  Choose a heat threshold Decide what counts as an “extreme heat day” — for example: Any day with maximum temperature (tmax) ≥ 85°F (29.4°C).
 
-2.  Filter your data Keep only the rows from 2010 to 2020 and only the temperature measurements you need.
+2.  Filter your data Keep only the rows from 2000 to 2020 and only the temperature measurements you need.
 
 3.  Flag extreme heat days Add a new column that says whether each day meets the heat threshold (Yes/No or 1/0).
 
@@ -324,7 +329,9 @@ Overall SVI
 
 Optional: individual components (e.g., poverty, housing, race)
 
-3.  Analyze the Correlation (Spatial and Temporal) A. Correlation analysis Group by tract and compute mean weekly heat over the full time range (2010–2020).
+3.  Analyze the Correlation (Spatial and Temporal) 
+
+A. Correlation analysis Group by tract and compute mean weekly heat over the full time range (2000–2020).
 
 Calculate correlation between average heat exposure and SVI score.
 

@@ -38,7 +38,7 @@ The National Oceanic and Atmospheric Administration (NOAA) is a U.S. federal age
 
 We will access NOAA data using the NOAA Climate Data Online (CDO) API, which allows users to programmatically retrieve weather observations by specifying parameters. To use the API, users must register for a free API token from NOAA, and send HTTP requests with that token included.
 
-In our project, we used the NOAA API to download daily temperature data from two San Francisco stations for the period 2010–2020, which we then compared with Daymet estimates for validation.
+In our project, we used the NOAA API to download daily temperature data from two San Francisco stations for the period 2000–2020, which we then compared with Daymet estimates for validation.
 
 This code will walk through obtaining weather data from NOAA API. First, you will need to obtain an API Token to use the NOAA website. 
 
@@ -490,7 +490,7 @@ EDA Steps for NOAA Data
 1. Data Quality Checks
  Check for missing or NA values in tmax, tmin, or date
  Confirm station IDs, names, and locations (make sure they are in SF)
- Ensure the time range covers 2010–2020
+ Ensure the time range covers 2000–2020
 
 2. Time Series Plots
  Plot tmax and tmin over time for each station
@@ -529,7 +529,7 @@ library(tidyr)
 library(Metrics)
 
 # Step 1: Prepare the data
-# Ensure 'date' is Date type and filter for 2010–2020
+# Ensure 'date' is Date type and filter for 2000–2020
 noaa_df <- sf_weather %>%
   mutate(date = as.Date(date)) %>%
   filter(year(date) >= 2000 & year(date) <= 2020)
@@ -620,7 +620,7 @@ head(weekly_summary)
 
 ## Answering Research Question 1!
 
-**What are the temporal patterns of extreme heat events in San Francisco from 2010–2020?**
+**What are the temporal patterns of extreme heat events in San Francisco from 2000–2020?**
 
 1. Define Extreme Heat Event
 For this analysis, define an extreme heat day as any day where TMAX ≥ 29.4°C (85°F) OR we can use the local based definition based on the 95th percentile. 
