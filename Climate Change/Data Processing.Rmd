@@ -1,5 +1,5 @@
 ---
-title: "Dowloading Temperature Data from NOAA"
+title: "Climate Change Data"
 author: "Nancy Carmona"
 date: "`r format(Sys.time(), '%B %d, %Y')`"
 output:
@@ -531,6 +531,8 @@ library(rnoaa)
 
 ```
 
+
+
 ```{r}
 options(noaakey = "sYSaRlnFshYqsTcobQCAivNIaHqEUWVc")
 
@@ -590,61 +592,153 @@ sf_data_2000 <- ncdc(datasetid = "NORMAL_DLY", stationid = sf_stations$data$id[1
 
 ## Daymet R package
 
+The Daymet package can be used to download gridded weather data. Unlike NOAA (National Oceanic and Atmospheric Administration), which uses observational climate and weather data collected from ground stations, satellites, and other sources, often at daily or hourly resolution. Daymet provides gridded daily surface weather data (e.g., temperature, precipitation) for North America, derived from interpolation of ground-based station data, and is especially useful for ecological and environmental modeling where spatially continuous data are needed.
+
+More information and examples of how to use the R package can be found here: https://cran.r-project.org/web/packages/daymetr/vignettes/daymetr-vignette.html
+
+To download the data we need to select the locations of the estimates. Given we want to examine weather at the census tract level, we can use census tract centroids to extract estimates at these locations. 
+
+First, we created a CSV file with information needed for batch downloading using the Daymet R package. 
+
+```{r}
+# make csv file with : site (GEOID), latitude, longitude
+
+sf_centroids <- tract_centroids %>% select(GEOID, INTPTLAT, INTPTLON)
+
+sf_centroid_df <- st_drop_geometry(sf_centroids)
+
+sf_centroid_df <- sf_centroid_df %>% mutate(across(c(INTPTLAT, INTPTLON), as.numeric))
+
+sf_centroid_df <- sf_centroid_df %>% 
+                        rename(site = GEOID,
+                               lat = INTPTLAT,
+                               lon = INTPTLON)
+
+
+write.csv(sf_centroid_df, "sf_centroids.csv", row.names = FALSE)
+
+
+```
+
+
 ```{r}
 
-if(!require(remotes)){install.packages("remotes")}
-remotes::install_github("bluegreen-labs/daymetr")
+# if(!require(remotes)){install.packages("remotes")}
+# remotes::install_github("bluegreen-labs/daymetr")
+# 
+
 library("daymetr")
 
-# Bounding box:  xmin: -123.1738 ymin: 37.63983 xmax: -122.2818 ymax: 37.92982
+
+df_batch <- download_daymet_batch(file_location = "~/Library/Mobile Documents/com~apple~CloudDocs/Documents/SFSU Faculty/PINC 2025/PSP2025/Climate Change/sf_centroids.csv", 
+start = 2000, 
+end = 2024, 
+simplify = TRUE)
 
 
-download_daymet(location = c(37.63983, -123.1738, 37.92982, -122.2818),
-                     start = 2000,
-                     end = 2001,
-                     param = "tmax")
+write.csv(df_batch, "sf_daymet.csv", row.names = FALSE)
 
-
-download_daymet_tiles(location = c(36.0133,-84.2625),
-                      tiles = NULL,
-                      start = 1980,
-                      end = 2012,
-                      param = "ALL")
 
 ```
 
 
+
+# Combining NOAA and Daymet data 
+
+| Step | Action                                                                              |
+| ---- | ----------------------------------------------------------------------------------- |
+| 1    | Plot and compare tmax from NOAA vs. Daymet at overlapping points                    |
+| 2    | Use Daymet for full coverage of tract-level exposure from 2010–2020                 |
+| 3    | Use NOAA for validation at specific weather stations                                |
+| 4    | Mention in methods that you compared the two, and why you chose Daymet for modeling |
+| 5    | Optionally run sensitivity analyses using NOAA in a subset of tracts                |
+
+
+
+1. Compare the Two Sources
+Start by comparing them to understand how they differ in:
+
+
+| Feature           | NOAA                   | Daymet                        |
+| ----------------- | ---------------------- | ----------------------------- |
+| Source            | Ground stations        | Gridded interpolation (1 km²) |
+| Spatial coverage  | Sparse, station-based  | Complete for all tracts       |
+| Temporal coverage | Varies by station      | Consistent daily data         |
+| Variables         | tmax, tmin, prcp, etc. | Same, but interpolated        |
+
+Plot daily tmax from NOAA vs. Daymet at the same location(s) over a sample year (e.g., 2015) to check how closely they align.
+
+2. Decide Which to Use for Main Analysis
+Ask:
+
+Does NOAA have gaps or missing tracts?
+
+Do you need tract-level coverage (not just near stations)?
+
+Use Daymet for full-coverage, tract-level exposure analysis — especially since your data is matched to census tract centroids.
+
+Use NOAA as a validation/check or for sensitivity analysis in key locations.
+
+
+3. Use NOAA for Sensitivity or Ground-Truthing
+Using the two NOAA stations within San Francisco
+
+Compare results (e.g., number of extreme heat days, trends) with the same time/area in Daymet
+
+Report discrepancies or alignment — this increases confidence in your exposure estimates
+
+
+
+## Validation of data
+
+We compare Daymet and NOAA data to validate the accuracy of the Daymet estimates used in our analysis. Since Daymet data is interpolated from ground-based stations—including NOAA, it is important to confirm that its temperature values align closely with actual observations from NOAA stations in San Francisco. This validation step builds confidence in using Daymet as the primary source for modeling heat exposure across all census tracts, especially where NOAA data may not be available. It also helps us quantify any systematic differences or biases, ensuring transparency and rigor in our methodological approach.
+
+What to Look For: Correlation > 0.9 is excellent
+
+Low RMSE / MAE shows good agreement
+
+Bias ≈ 0 means Daymet isn’t systematically too high/low
+ 
 ```{r}
+# Ensure dates are in Date format
+daymet_df <- daymet_df %>%
+  mutate(date = as.Date(date))
 
-#── 1. Load libraries ─────────────────────────────────────────────────────────
-library(daymetr)
-library(sf)
-library(tigris)
+noaa_df <- noaa_df %>%
+  mutate(date = as.Date(date))
 
-#── 2. Get SF county bbox in lat/lon ─────────────────────────────────────────
-sf_tracts <- tracts(state = "CA", county = "San Francisco", year = 2020, cb = TRUE)
-sf_bbox   <- st_transform(sf_tracts, 4326) |> st_bbox()
+# Join both datasets by site and date
+compare_df <- inner_join(daymet_df, noaa_df, by = c("site", "date"))
 
-#── 3. Download Daymet for the bbox ───────────────────────────────────────────
-# This will fetch all tiles overlapping your box for prcp, tmin, tmax, 2000–2024
-dm_sf <- daymetr::download_daymet(
-  site         = "SF_bbox",                # just a label
-  lat          = c(sf_bbox$ymin, sf_bbox$ymax),
-  lon          = c(sf_bbox$xmin, sf_bbox$xmax),
-  start        = 2000,
-  end          = 2024,
-  internal     = FALSE,                    # save to disk
-  spatial      = "bbox",                   # bounding‐box download
-  var          = c("prcp", "tmin", "tmax") # choose your variables
-)
+# Plot tmax values from both sources
+ggplot(compare_df, aes(x = date)) +
+  geom_line(aes(y = tmax_daymet, color = "Daymet")) +
+  geom_line(aes(y = tmax_noaa, color = "NOAA")) +
+  facet_wrap(~ site, scales = "free_y") +
+  labs(title = "Daymet vs NOAA Daily Tmax",
+       y = "Tmax (°C)", x = "Date", color = "Data Source") +
+  theme_minimal()
 
-# dm_sf is a data.frame listing the downloaded files (zip archives).
-# Unzip and read them back in as rasters with terra or raster, e.g.:
-# nc <- raster::stack("daymet_prcp_SF_bbox_daily_2000_2024.nc")
+
+# Correlation and RMSE per site
+library(Metrics)
+
+validation_stats <- compare_df %>%
+  group_by(site) %>%
+  summarise(
+    correlation = cor(tmax_daymet, tmax_noaa, use = "complete.obs"),
+    rmse = rmse(tmax_noaa, tmax_daymet),
+    mae = mae(tmax_noaa, tmax_daymet),
+    bias = mean(tmax_daymet - tmax_noaa, na.rm = TRUE)
+  )
+
+print(validation_stats)
+
 
 ```
-
-
+ 
+ 
+ 
  
 
 ```{r session.info, echo=FALSE}
