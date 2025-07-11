@@ -80,18 +80,21 @@ The download_daymet_batch function from the daymetr R package allows users to do
 # make sure to indicate the year, end
 # the argument "simplify" can be used to create a dataframe of the data, not using it will result your data to be in a list format 
 
-df_batch <- download_daymet_batch(file_location = "~/Library/Mobile Documents/com~apple~CloudDocs/Documents/SFSU Faculty/PINC 2025/PSP2025/Climate Change/sf_centroids.csv", 
-start = 2000, 
-end = 2024, 
-simplify = TRUE)
-
-# save a csv with weather data for San Francisco 
-write.csv(df_batch, "sf_daymet.csv", row.names = FALSE)
+# df_batch <- download_daymet_batch(file_location = "~/Library/Mobile Documents/com~apple~CloudDocs/Documents/SFSU Faculty/PINC 2025/PSP2025/Climate Change/sf_centroids.csv", 
+# start = 2000, 
+# end = 2024, 
+# simplify = TRUE)
+# 
+# # save a csv with weather data for San Francisco 
+# write.csv(df_batch, "sf_daymet.csv", row.names = FALSE)
 
 # read in your data from the csv after you download it the first time 
 
-sf_daymet <- read_csv("~/Library/Mobile Documents/com~apple~CloudDocs/Documents/SFSU Faculty/PINC 2025/PSP2025/Climate Change/sf_daymet.csv")
+# sf_daymet <- read_csv("~/Library/Mobile Documents/com~apple~CloudDocs/Documents/SFSU Faculty/PINC 2025/PSP2025/Climate Change/sf_daymet.csv")
 
+# setwd("~/Library/Mobile Documents/com~apple~CloudDocs/Documents/SFSU Faculty/PINC 2025/PSP2025/Climate Change")
+
+sf_daymet <- read_csv("Data/sf_daymet.csv")
 
 ```
 
@@ -131,6 +134,8 @@ dim(sf_daymet) # 14839440
 # check names again 
 unique(sf_daymet$measurement)
 
+# save a csv with the cleaned up data 
+# write.csv(sf_daymet, "Data/sf_daymet_clean.csv", row.names = FALSE)
 
 ```
 
@@ -259,6 +264,140 @@ ggplot(overall_tmax, aes(x = year, y = mean_tmax)) +
 
 ```
 
+```{r}
+
+# Load libraries
+library(tidyverse)
+library(sf)
+library(tigris)
+options(tigris_use_cache = TRUE)
+
+# 1. Download SF census tracts (as sf object)
+sf_tracts <- tracts(state = "CA", county = "San Francisco", year = 2020, class = "sf")
+
+# 2. Filter out water-heavy tracts using AWATER
+sf_tracts <- sf_tracts %>%
+  mutate(area_total = st_area(geometry),
+         pct_water = AWATER / as.numeric(area_total)) %>%
+  filter(pct_water < 0.5)  # Keep tracts with < 50% water coverage
+
+# 3. Prepare your temperature data
+sf_daymet_temp <- sf_daymet_clean %>%
+  filter(measurement == "tmax") %>%
+  group_by(site) %>%
+  summarise(mean_tmax = mean(value, na.rm = TRUE)) %>%
+  mutate(site = as.character(site))
+
+# 4. Join temp data to spatial data
+
+# since the sf_tracts has a FIPS code (as a character) with a leading 0, but the sf_daymet_temp has site (as a character) without the leading 0, data wrangling is needed...
+# we can fix this by converting site to character with leading zeroes
+
+sf_daymet_temp <- sf_daymet_temp %>%
+  mutate(site = as.character(site),
+         site = str_pad(site, 11, "left", "0"))
+
+
+sf_temp_map <- sf_tracts %>%
+  mutate(GEOID = as.character(GEOID)) %>%
+  left_join(sf_daymet_temp, by = c("GEOID" = "site"))
+
+# 5. Plot the map
+ggplot(sf_temp_map) +
+  geom_sf(aes(fill = mean_tmax), color = NA) +
+  scale_fill_viridis_c(name = "Mean Tmax", na.value = "grey90") +
+  labs(title = "Mean Daily Max Temperature (C) by Census Tract",
+       subtitle = "San Francisco (Land Only)",
+       caption = "Source: Daymet + US Census") +
+  theme_minimal()
+
+sf_temp_map_f <- sf_temp_map %>%
+  mutate(mean_tmax = (mean_tmax * 9/5) + 32)
+
+ggplot(sf_temp_map_f) +
+  geom_sf(aes(fill = mean_tmax), color = NA) +
+  scale_fill_viridis_c(name = "Mean Tmax", na.value = "grey90") +
+  labs(title = "Mean Daily Max Temperature (F) by Census Tract",
+       subtitle = "San Francisco (Land Only)",
+       caption = "Source: Daymet + US Census") +
+  theme_minimal()
+
+```
+
+```{r}
+# Load required libraries
+library(tidyverse)
+library(sf)
+library(tigris)
+library(stringr)
+options(tigris_use_cache = TRUE)
+
+# ------------------------
+# STEP 1: Filter to tmax
+# ------------------------
+sf_daymet_tmax <- sf_daymet_clean %>%
+  filter(measurement == "tmax") %>%
+  mutate(site = str_pad(as.character(site), 11, side = "left", pad = "0"))
+
+# ------------------------
+# STEP 2: Calculate 97th percentile per tract
+# ------------------------
+heat_thresholds <- sf_daymet_tmax %>%
+  group_by(site) %>%
+  summarise(tmax_97 = quantile(value, probs = 0.975, na.rm = TRUE), .groups = "drop")
+
+# ------------------------
+# STEP 3: Count and normalize heat days per year
+# ------------------------
+heat_days <- sf_daymet_tmax %>%
+  left_join(heat_thresholds, by = "site") %>%
+  mutate(is_heat_day = value > tmax_97) %>%
+  group_by(site, year) %>%
+  summarise(yearly_heat_days = sum(is_heat_day, na.rm = TRUE), .groups = "drop") %>%
+  group_by(site) %>%
+  summarise(
+    avg_heat_days_per_year = mean(yearly_heat_days, na.rm = TRUE),
+    n_years = n()
+  )
+
+# ------------------------
+# STEP 4: Get SF census tracts
+# ------------------------
+sf_tracts <- tracts(state = "CA", county = "San Francisco", year = 2020, class = "sf")
+
+# ------------------------
+# STEP 5: Filter out water-heavy tracts
+# ------------------------
+sf_tracts <- sf_tracts %>%
+  mutate(area_total = st_area(geometry),
+         pct_water = AWATER / as.numeric(area_total)) %>%
+  filter(pct_water < 0.5) %>%
+  mutate(GEOID = str_pad(GEOID, 11, "left", "0"))
+
+# ------------------------
+# STEP 6: Join temperature data with spatial data
+# ------------------------
+sf_heatmap <- sf_tracts %>%
+  left_join(heat_days, by = c("GEOID" = "site"))
+
+# ------------------------
+# STEP 7: Plot the heatmap
+# ------------------------
+ggplot(sf_heatmap) +
+  geom_sf(aes(fill = avg_heat_days_per_year), color = NA) +
+scale_fill_gradient(
+  name = "Avg Heat Days/\nYear (>97th %ile)",
+  low = "yellow", high = "red", na.value = "grey90"
+) +
+  labs(
+    title = "Average Annual Extreme Heat Days by Census Tract",
+    subtitle = "Defined as Days Above 97th Percentile Tmax",
+    caption = "Source: Daymet 2000–2020"
+  ) +  
+  theme_minimal()
+
+```
+
 ## Next steps for PINC team
 
 As part of your training you will take the Daymet data and apply some data wrangling. Tasks are below.
@@ -285,7 +424,7 @@ Tag these as events per site and week, to later model exposure-outcome timing.
 
 Now we can get ready to answer our first research question!
 
-**What are the temporal patterns of extreme heat events in San Francisco from 2010–2020?**
+**What are the temporal patterns of extreme heat events in San Francisco from 2000–2020?**
 
 1.  Choose a heat threshold Decide what counts as an “extreme heat day” — for example: Any day with maximum temperature (tmax) ≥ 85°F (29.4°C).
 
@@ -303,7 +442,11 @@ Now we can get ready to answer our first research question!
 
 8.  Make graphs Plot your results:
 
-A line graph: \# of extreme heat days per year A bar chart: \# of heat waves per year A heatmap or seasonal plot: which months have the most heat days
+A line graph: of extreme heat days per year
+
+A bar chart: of heat waves per year
+
+A heatmap or seasonal plot: which months have the most heat days
 
 Write a short summary for your abstract and poster!
 
@@ -329,7 +472,7 @@ Overall SVI
 
 Optional: individual components (e.g., poverty, housing, race)
 
-3.  Analyze the Correlation (Spatial and Temporal) 
+3.  Analyze the Correlation (Spatial and Temporal)
 
 A. Correlation analysis Group by tract and compute mean weekly heat over the full time range (2000–2020).
 

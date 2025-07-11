@@ -21,8 +21,10 @@ opts_chunk$set(tidy = FALSE, echo = TRUE, message = FALSE)
 if (!require("pacman")) { install.packages("pacman", repos = "http://cran.r-project.org") }
 
 # Load other packages, installing as needed.
-pacman::p_load(tidyverse, dplyr, httr, jsonlite, tigris, sf, gstat, daymetr)
+pacman::p_load(tidyverse, tigris, sf, tmap)
 
+# Set working directory 
+setwd("~/Library/Mobile Documents/com~apple~CloudDocs/Documents/SFSU Faculty/PINC 2025/PSP2025/Climate Change")
 ```
 
 # About SVI Data
@@ -44,6 +46,11 @@ with higher social vulnerability experience more frequent or intense
 extreme heat events. This helps us identify environmental justice
 patterns and prioritize areas for future public health interventions.
 
+The variable *RPL_THEMES* represents the overall percentile rank of
+social vulnerability for each census tract, based on the combination of
+all four SVI themes: Socioeconomic status Household composition &
+disability Minority status & language Housing type & transportation
+
 ## Downloading Data
 
 Since no specific API exists, we can directly download from the website:
@@ -54,9 +61,158 @@ Tracts.
 
 ```{r}
 
-# read in data 
-svi_data <- read_csv("Climate Change/Data/CA_SVI.csv")
-View(CA_SVI)
+# Step 0: Load SVI and pre-processed clean daymet data
+svi_data <- read_csv("Data/CA_SVI.csv")
+# View(svi_data)
+
+sf_daymet <- read_csv("Data/sf_daymet_clean.csv")
+# View(sf_daymet)
+
+```
+
+```{r analysis, echo= FALSE}
+
+# Calculate 97.5th Percentile tmax per Census Tract
+tmax_thresholds <- sf_daymet %>%
+  filter(measurement == "tmax") %>%
+  group_by(site) %>%
+  summarize(tmax_97.5 = quantile(value, 0.975, na.rm = TRUE))
+
+
+# Tag Days as EHEs if tmax > 97.5th Percentile
+tmax_ehe <- sf_daymet %>%
+  filter(measurement == "tmax") %>%
+  left_join(tmax_thresholds, by = "site") %>%
+  mutate(ehe_day = value > tmax_97.5)
+
+
+# Convert Day-of-Year to Date, then to Week
+tmax_ehe <- tmax_ehe %>%
+  mutate(
+    date = as.Date(yday - 1, origin = paste0(year, "-01-01")),
+    week = isoweek(date),
+    year = year(date)
+  )
+
+# Summarize Weekly EHE Counts
+weekly_ehe <- tmax_ehe %>%
+  group_by(site, year, week) %>%
+  summarize(
+    weekly_ehe_days = sum(ehe_day, na.rm = TRUE),
+    avg_weekly_tmax = mean(value, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# Join with SVI Data
+
+# since the svi_data has a FIPS code (as a character) with a leading 0, but the tmax_ehe has site (as a double) without the leading 0, data wrangling is needed...
+# we can fix this by converting site to character with leading zeroes
+
+weekly_ehe <- weekly_ehe %>%
+  mutate(site = as.character(sprintf("%011.0f", site)))
+
+
+weekly_ehe_svi <- weekly_ehe %>%
+  left_join(svi_data, by = c("site" = "FIPS"))
+
+```
+
+```{r}
+ehe_summary <- weekly_ehe_svi %>%
+  group_by(site) %>%
+  summarize(
+    total_ehe_days = sum(weekly_ehe_days, na.rm = TRUE),
+    mean_ehe_days  = mean(weekly_ehe_days, na.rm = TRUE),
+    svi            = first(RPL_THEMES)  # assume SVI doesn't vary weekly
+  )
+
+```
+
+```{r}
+
+ggplot(ehe_summary, aes(x = svi, y = mean_ehe_days)) +
+  geom_point(alpha = 0.4) +
+  geom_smooth(method = "loess", se = FALSE, color = "blue") +
+  labs(
+    title = "Relationship between Social Vulnerability and Extreme Heat Events",
+    x = "SVI (RPL_THEMES)",
+    y = "Mean Weekly EHE Days"
+  )
+
+```
+
+```{r}
+# Spearman correlation
+cor.test(ehe_summary$svi, ehe_summary$mean_ehe_days, method = "spearman")
+
+# Pearson correlation
+cor.test(ehe_summary$svi, ehe_summary$mean_ehe_days, method = "pearson")
+
+```
+
+```{r}
+
+# Create SVI Quartiles (fixed per tract)
+joined_data <- weekly_ehe_svi %>%
+  mutate(
+    svi_quartile = ntile(RPL_THEMES, 4)  # Q1 = least vulnerable, Q4 = most
+  )
+
+# Aggregate to Tract-Year Level
+ehe_yearly <- joined_data %>%
+  group_by(site, year, svi_quartile) %>%
+  summarize(
+    yearly_ehe_days = sum(weekly_ehe_days, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# Summarize Across Tracts Within Each Quartile-Year
+ehe_trends <- ehe_yearly %>%
+  group_by(year, svi_quartile) %>%
+  summarize(
+    mean_ehe = mean(yearly_ehe_days, na.rm = TRUE),
+    sd_ehe = sd(yearly_ehe_days, na.rm = TRUE),
+    n = n(),
+    se_ehe = sd_ehe / sqrt(n),
+    .groups = "drop"
+  )
+
+```
+
+```{r}
+ggplot(ehe_trends, aes(x = year, y = mean_ehe, color = factor(svi_quartile))) +
+  geom_line(size = 1.2) +
+  geom_ribbon(aes(ymin = mean_ehe - se_ehe, ymax = mean_ehe + se_ehe, fill = factor(svi_quartile)), alpha = 0.2, color = NA) +
+  scale_color_brewer(palette = "YlOrRd", name = "SVI Quartile") +
+  scale_fill_brewer(palette = "YlOrRd", name = "SVI Quartile") +
+  labs(
+    title = "Trends in Annual Extreme Heat Events by Social Vulnerability",
+    x = "Year",
+    y = "Mean EHE Days per Tract"
+  ) +
+  theme_minimal()
+```
+
+```{r, message = FALSE}
+
+# Get the San Francisco County Boundary
+sf_boundary <- counties(state = "CA", year = 2020, class = "sf") %>%
+  filter(NAME == "San Francisco") %>%
+  st_transform(4326)  # ensure consistent CRS
+
+# Download Tracts for San Francisco
+tracts_sf <- tracts(state = "CA", county = "San Francisco", year = 2020, class = "sf") %>%
+  st_transform(4326)
+
+# Keep Only Tracts That Touch SF Land
+tracts_sf_clean <- tracts_sf[sf::st_intersects(tracts_sf, sf_boundary, sparse = FALSE), ]
+
+# Join with EHE + SVI Data
+ehe_map_data <- ehe_map_data %>%
+  mutate(site = as.character(site))
+
+tracts_sf_data <- tracts_sf_clean %>%
+  left_join(ehe_map_data, by = c("GEOID" = "site"))
 
 ```
 
@@ -64,10 +220,9 @@ View(CA_SVI)
 
 Join to weekly heat exposure data using tract ID (FIPS)
 
-Exploratory Data Analysis 
+Exploratory Data Analysis
 
-4.1 Time trends Plot yearly average heat days
-per tract
+4.1 Time trends Plot yearly average heat days per tract
 
 Plot number of heat waves per year
 
@@ -77,10 +232,10 @@ Map of SVI values per tract
 
 Map showing both for visual overlap
 
-Statistical Analysis 
+Statistical Analysis
 
-5.1 Correlation analysis Correlation between
-average weekly heat exposure and SVI
+5.1 Correlation analysis Correlation between average weekly heat
+exposure and SVI
 
 Include Pearson or Spearman correlation and scatterplot
 
