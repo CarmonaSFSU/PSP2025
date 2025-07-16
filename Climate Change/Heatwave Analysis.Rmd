@@ -193,7 +193,7 @@ head(hot_days_summary)
 
 
 
-# averages across city 
+# averages across city - average number of hot days per year 
 hot_days_avg <- hot_days_summary %>%
   group_by(year) %>%
   summarise(
@@ -223,7 +223,7 @@ ggplot(hot_days_avg, aes(x = year)) +
 
 Now lets calculate the heat waves! We will use the four definitions we described above. 
 
-```{r heatwave.calculation, echo = FALSE}
+```{r heatwave.calculation, eval = FALSE}
 
 
 long_temp_flagged_new <- long_temp_flagged %>%
@@ -300,6 +300,8 @@ heat_wave_summary <- long_temp_flagged %>%
   
 ```
 
+
+
 # Answering Research Question 1: What are the temporal patterns of extreme heat events in San Francisco from 2000–2020?
 
 Each team member can work on one of the heat wave definitions to answer the question above. 
@@ -317,7 +319,38 @@ summary_hw_2day_85 <-   heat_wave_summary %>%
   
   summary_hw_2day_85 %>%  ggplot(aes (x = year, y = avg_hw_2day_85)) + geom_col(stat = "identity") + geom_smooth(method = "loess")
   
-  
+# Create log-transformed variable
+summary_hw_2day_85$log_avg_hw <- log(summary_hw_2day_85$avg_hw_2day_85)
+
+# Fit linear model
+model_log_hw_2day_85 <- lm(log_avg_hw ~ year, data = summary_hw_2day_85)
+
+summary(model_log_hw_2day_85)
+
+# interpret coefficient
+
+exp(coef(model_log_hw_2day_85)["year"]) - 1
+
+
+exp(0.023) - 1 # 0.0233 is 2.33% increase per year
+
+
+
+# linear model 
+
+model_lm_hw_2day_85 <- lm(avg_hw_2day_85 ~ year, data = summary_hw_2day_85)
+
+summary(model_lm_hw_2day_85)
+
+# year           0.23996    0.09163   2.619 
+# p value   0.0169 * IS statistically significant 
+
+# Each additional year is associated with an increase of ~0.24 heat wave events per year
+
+# A linear regression model showed a statistically significant increase in the number of 2-day heat wave events above the 85th percentile in San Francisco between 2000 and 2020 (β = 0.24, p = 0.017). This corresponds to an average rise of about one additional 2-day heatwave every 4 years, highlighting a clear upward trend in short-duration heat extremes.
+
+
+
 ```
 
 ## Heatwaves: 3+ days at 85th percentile 
@@ -333,6 +366,36 @@ summary_hw_2day_85 <-   heat_wave_summary %>%
   summary_hw_3day_85 %>%  ggplot(aes (x = year, y = avg_hw_3day_85)) + geom_col(stat = "identity") + geom_smooth(method = "loess")
   
 
+# Create log-transformed variable
+summary_hw_3day_85$log_avg_hw <- log(summary_hw_3day_85$avg_hw_3day_85)
+
+# Fit linear model
+model_log_hw_3day_85 <- lm(log_avg_hw ~ year, data = summary_hw_3day_85)
+summary(model_log_hw_3day_85)
+
+# interpret coefficient
+
+exp(coef(model_log_hw_3day_85)["year"]) - 1
+
+
+exp(0.03251644) - 1 # 0.03305 is 3.31% increase per year
+
+
+# linear model 
+
+model_lm_hw_3day_85 <- lm(avg_hw_3day_85 ~ year, data = summary_hw_3day_85)
+
+summary(model_lm_hw_3day_85)
+  
+# year           0.17443    0.08894   1.961   
+
+# p value 0.0647 is NOT statistically significant 
+
+# Each additional year is associated with an increase of ~0.17 heat wave events per year
+
+# A linear model examining the average number of 3-day heat wave events above the 85th percentile from 2000–2020 showed a marginally significant increasing trend (p = 0.065). The estimated increase was approximately 0.17 events per year, indicating a possible rise in multi-day extreme heat events, though the trend does not reach conventional statistical significance.
+
+
 ```
 
 
@@ -341,14 +404,32 @@ summary_hw_2day_85 <-   heat_wave_summary %>%
 
 
 ```{r}
-    summary_hw_2day_97_5 <-   heat_wave_summary %>% 
+
+summary_hw_2day_97_5 <-   heat_wave_summary %>% 
     group_by(year) %>% 
     summarise(avg_hw_2day_97_5 = mean(hw_2day_97_5, na.rm = TRUE),
               .groups = "drop")
   
-  summary_hw_2day_97_5 %>%  ggplot(aes (x = year, y = avg_hw_2day_97_5)) + geom_col(stat = "identity") + geom_smooth(method = "loess")
+summary_hw_2day_97_5 %>%  ggplot(aes (x = year, y = avg_hw_2day_97_5)) + geom_col(stat = "identity") + geom_smooth(method = "loess")
   
-  
+
+
+# linear model 
+
+model_lm_hw_2day_97_5 <- lm(avg_hw_2day_97_5 ~ year, data = summary_hw_2day_97_5)
+
+summary(model_lm_hw_2day_97_5)
+
+# year           0.12739    0.06943   1.835  
+
+# p value 0.0822 NOT statistically significant 
+
+# Each additional year is associated with an increase of ~0.13 2-day heatwave events per year
+
+# Between 2000 and 2020, the average number of 2-day heat wave events above the 97.5th percentile increased by approximately 0.13 events per year — or roughly 1 additional event every 8 years.
+
+
+
 ```
 
 
@@ -363,6 +444,23 @@ summary_hw_2day_85 <-   heat_wave_summary %>%
   
   summary_hw_3day_97_5 %>%  ggplot(aes (x = year, y = avg_hw_3day_97_5)) + geom_col(stat = "identity") + geom_smooth(method = "loess")
   
+  
+
+
+# linear model 
+
+model_lm_hw_3day_97_5 <- lm(avg_hw_3day_97_5 ~ year, data = summary_hw_3day_97_5)
+
+summary(model_lm_hw_3day_97_5)
+
+# year           0.06876    0.03092   2.224   
+# Each additional year is associated with an increase of ~0.069 events per year.
+
+# p value 0.0385 * IS statistically significant 
+  
+# From 2000 to 2020, the average number of 3-day heat wave events (above the 97.5th percentile) in San Francisco increased by approximately 0.069 events per year, a statistically significant upward trend (p = 0.0385).
+
+
 ```
 
 
